@@ -50,8 +50,8 @@ Casablanca, Rabat, Tanger, Fès, Marrakech, Agadir, Meknès, Oujda, Kénitra, T�
 
 ```bash
 # 1. Cloner le dépôt
-git clone https://github.com/Azer-2005/trafficai-maroc.git
-cd trafficai-maroc
+git clone https://github.com/Azer-2005/traffic-ai.git
+cd traffic-ai
 
 # 2. Créer et activer un environnement virtuel
 python -m venv venv
