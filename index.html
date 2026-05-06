@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>TrafficAI Maroc 🇲🇦</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background: #0a0e1a;
+      color: white;
+      font-family: Arial, sans-serif;
+      padding: 20px;
+    }
+    .container { max-width: 1200px; margin: 0 auto; }
+    h1 { color: #006633; margin-bottom: 20px; }
+    .grid { display: flex; gap: 20px; flex-wrap: wrap; }
+    .form-card, .chart-card {
+      background: #1a2236;
+      padding: 20px;
+      border-radius: 10px;
+      flex: 1;
+      min-width: 300px;
+    }
+    input, select {
+      width: 100%;
+      padding: 10px;
+      margin: 10px 0;
+      background: #111827;
+      border: 1px solid #333;
+      color: white;
+      border-radius: 5px;
+    }
+    button {
+      width: 100%;
+      padding: 12px;
+      background: #006633;
+      color: white;
+      border: none;
+      border-radius: 5px;
+      cursor: pointer;
+      font-size: 16px;
+    }
+    button:hover { background: #C1272D; }
+    .result {
+      margin-top: 20px;
+      padding: 15px;
+      background: #111827;
+      border-radius: 10px;
+      display: none;
+    }
+    .result.visible { display: block; }
+    .volume { font-size: 48px; font-weight: bold; color: #10b981; }
+    canvas { max-height: 300px; }
+    .heatmap { display: grid; grid-template-columns: repeat(24, 1fr); gap: 3px; margin-top: 10px; }
+    .cell { aspect-ratio: 1; background: #1a2236; border-radius: 3px; }
+  </style>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+<div class="container">
+  <h1>🚦 TrafficAI - Maroc 🇲🇦</h1>
+  <div class="grid">
+    <div class="form-card">
+      <h3>Paramètres</h3>
+      <form id="form">
+        <label>Ville:</label>
+        <select id="city" name="city">
+          <option value="casablanca">Casablanca</option>
+          <option value="rabat">Rabat</option>
+          <option value="tanger">Tanger</option>
+          <option value="fes">Fès</option>
+          <option value="marrakesh">Marrakech</option>
+          <option value="agadir">Agadir</option>
+        </select>
+
+        <label>Heure:</label>
+        <input type="number" id="hour" name="hour" value="8" min="0" max="23">
+
+        <label>Jour:</label>
+        <select id="day" name="day_of_week">
+          <option value="0">Lundi</option>
+          <option value="1">Mardi</option>
+          <option value="2">Mercredi</option>
+          <option value="3">Jeudi</option>
+          <option value="4">Vendredi</option>
+          <option value="5">Samedi</option>
+          <option value="6">Dimanche</option>
+        </select>
+
+        <label>Météo:</label>
+        <select id="weather" name="weather">
+          <option value="clear">☀️ Dégagé</option>
+          <option value="rain">🌧️ Pluie</option>
+          <option value="fog">🌫️ Brouillard</option>
+          <option value="snow">❄️ Neige</option>
+        </select>
+
+        <label>Température (°C):</label>
+        <input type="number" id="temp" name="temperature" value="25">
+
+        <label>
+          <input type="checkbox" id="holiday" name="is_holiday" value="1"> Jour férié
+        </label>
+
+        <button type="submit">🔮 Prédire</button>
+      </form>
+
+      <div id="result" class="result">
+        <div>Volume prédit :</div>
+        <div class="volume" id="volume">—</div>
+        <div>véhicules / heure</div>
+        <div id="level"></div>
+      </div>
+    </div>
+
+    <div class="chart-card">
+      <h3>Prévision 24h</h3>
+      <canvas id="chart"></canvas>
+      <h3>Heatmap</h3>
+      <div id="heatmap" class="heatmap"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+let chart;
+const heatmap = document.getElementById('heatmap');
+const cells = [];
+
+for (let i = 0; i < 24; i++) {
+  const cell = document.createElement('div');
+  cell.className = 'cell';
+  heatmap.appendChild(cell);
+  cells.push(cell);
+}
+
+document.getElementById('form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const formData = new FormData(e.target);
+  
+  try {
+    const [predRes, forecastRes] = await Promise.all([
+      fetch('/predict', { method: 'POST', body: formData }),
+      fetch('/api/hourly', { method: 'POST', body: JSON.stringify({
+        city: formData.get('city'),
+        day_of_week: parseInt(formData.get('day_of_week')),
+        weather: formData.get('weather'),
+        is_holiday: parseInt(formData.get('is_holiday') || 0),
+        temperature: parseFloat(formData.get('temperature'))
+      }), headers: { 'Content-Type': 'application/json' } })
+    ]);
+    
+    const pred = await predRes.json();
+    const forecast = await forecastRes.json();
+    
+    if (pred.success) {
+      document.getElementById('volume').textContent = pred.volume;
+      document.getElementById('level').innerHTML = `<span style="color: ${pred.level === 'high' ? 'orange' : pred.level === 'critical' ? 'red' : 'green'}">${pred.label}</span>`;
+      document.getElementById('result').classList.add('visible');
+    }
+    
+    if (forecast.success) {
+      const volumes = forecast.forecast.map(f => f.volume);
+      const max = Math.max(...volumes);
+      
+      if (chart) chart.destroy();
+      const ctx = document.getElementById('chart').getContext('2d');
+      chart = new Chart(ctx, {
+        type: 'line',
+        data: { labels: Array(24).fill().map((_,i)=>i+'h'), datasets: [{ label: 'Volume', data: volumes, borderColor: '#006633', fill: true }] }
+      });
+      
+      forecast.forecast.forEach((f, i) => {
+        const intensity = 0.3 + 0.7 * (f.volume / max);
+        cells[i].style.background = f.level === 'low' ? `rgba(16,185,129,${intensity})` : f.level === 'medium' ? `rgba(245,158,11,${intensity})` : f.level === 'high' ? `rgba(249,115,22,${intensity})` : `rgba(239,68,68,${intensity})`;
+      });
+    }
+  } catch(err) {
+    alert('Erreur: ' + err.message);
+  }
+});
+</script>
+</body>
+</html>
